@@ -1,0 +1,261 @@
+Imports MySql.Data.MySqlClient
+
+Public Class Form4
+
+    Dim conn As New MySqlConnection("Data Source=localhost;database=nexamed;username=root;password=pass")
+    Private doctorid As Object
+
+    Private Sub Form4_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        PopulateDoctorTypesComboBox()
+        PopulateDoctorsComboBox()
+        ' Populate the DateTimePicker for appointment date with today's date
+        DateTimePicker2.Value = DateTime.Now.Date
+        ' Set the CustomFormat property for appointment time
+    End Sub
+
+    Private Sub PopulateDoctorTypesComboBox()
+        Try
+            If conn.State = ConnectionState.Closed Then
+                conn.Open()
+            End If
+
+            ' Use a proper SQL query to fetch distinct expertise values from the doctor table
+            Dim query As String = "SELECT DISTINCT expertise FROM doctor"
+
+            Using cmd As New MySqlCommand(query, conn)
+                Using reader As MySqlDataReader = cmd.ExecuteReader()
+                    While reader.Read()
+                        ' Add each expertise value to the ComboBox
+                        ComboBox1.Items.Add(reader("expertise").ToString())
+                    End While
+                End Using
+            End Using
+
+        Catch ex As Exception
+            MessageBox.Show("Error fetching doctor types: " & ex.Message)
+        Finally
+            If conn.State = ConnectionState.Open Then
+                conn.Close()
+            End If
+        End Try
+    End Sub
+
+    Private Sub ComboBox1_SelectedIndexChanged(sender As Object, e As EventArgs) Handles ComboBox1.SelectedIndexChanged
+        ' Call the method to repopulate ComboBox2 based on the selected doctor type
+        PopulateDoctorsComboBox()
+    End Sub
+
+    Private Sub PopulateDoctorsComboBox()
+        Try
+            If conn.State = ConnectionState.Closed Then
+                conn.Open()
+            End If
+
+            ' Clear existing items in ComboBox2
+            ComboBox2.Items.Clear()
+
+            ' Check if an item is selected in ComboBox1
+            If ComboBox1.SelectedItem IsNot Nothing Then
+                ' Get the selected doctor type (expertise) from ComboBox1
+                Dim selectedDoctorType As String = ComboBox1.SelectedItem.ToString()
+
+                ' Use a parameterized query to fetch doctor names based on the selected type
+                Dim query As String = "SELECT name FROM doctor WHERE expertise = @Expertise"
+
+                Using cmd As New MySqlCommand(query, conn)
+                    cmd.Parameters.AddWithValue("@Expertise", selectedDoctorType)
+
+                    Using reader As MySqlDataReader = cmd.ExecuteReader()
+                        While reader.Read()
+                            ' Add the doctor name to ComboBox2
+                            ComboBox2.Items.Add(reader("name").ToString())
+                        End While
+                    End Using
+                End Using
+            End If
+        Catch ex As Exception
+            MessageBox.Show("Error fetching doctors: " & ex.Message)
+        Finally
+            If conn.State = ConnectionState.Open Then
+                conn.Close()
+            End If
+        End Try
+    End Sub
+
+
+
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        ' Validate input fields
+        If String.IsNullOrWhiteSpace(TextBox1.Text) OrElse
+           ContainsNumeric(TextBox2.Text) OrElse
+           Not IsNumeric(TextBox3.Text) OrElse
+           TextBox3.Text.Length <> 10 OrElse
+           ContainsNumeric(TextBox4.Text) OrElse
+           (Not RadioButton1.Checked AndAlso Not RadioButton2.Checked) OrElse
+           ComboBox1.SelectedItem Is Nothing OrElse
+           ComboBox2.SelectedItem Is Nothing OrElse
+           ComboBox3.SelectedItem Is Nothing OrElse
+           DateTimePicker2.Value <= DateTime.Now OrElse
+           (Not RadioButton3.Checked AndAlso Not RadioButton4.Checked) Then
+            MessageBox.Show("All fields must be filled, and date/time must be in the future. Contact number must be a 10-digit integer.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Return
+        End If
+
+        ' Your code for patient appointment scheduling...
+        Try
+            If conn.State = ConnectionState.Closed Then
+                conn.Open()
+            End If
+
+            ' Get patient details
+            Dim patientName As String = TextBox1.Text
+            Dim dob As Date = DateTimePicker1.Value
+            Dim gender As String = If(RadioButton1.Checked, "Male", "Female")
+            Dim address As String = TextBox2.Text
+            Dim contactNo As String = TextBox3.Text
+            Dim medicalHistory As String = TextBox4.Text
+
+            ' Get selected doctor details
+            Dim selectedDoctor As Object = ComboBox2.SelectedItem
+
+            ' Get appointment details
+            Dim appointmentDate As Date = DateTimePicker2.Value
+            Dim ambulanceRequired As Boolean = RadioButton3.Checked
+
+            ' Store patient details in the patient table
+            Dim insertPatientQuery As String = "INSERT INTO patient (name, dob, gender, address, contactno, medicalhistory) VALUES (@Name, @DOB, @Gender, @Address, @ContactNo, @MedicalHistory)"
+            Using cmd As New MySqlCommand(insertPatientQuery, conn)
+                cmd.Parameters.AddWithValue("@Name", patientName)
+                cmd.Parameters.AddWithValue("@DOB", dob)
+                cmd.Parameters.AddWithValue("@Gender", gender)
+                cmd.Parameters.AddWithValue("@Address", address)
+                cmd.Parameters.AddWithValue("@ContactNo", contactNo)
+                cmd.Parameters.AddWithValue("@MedicalHistory", medicalHistory)
+
+                cmd.ExecuteNonQuery()
+            End Using
+
+            ' Fetch the patientid of the inserted patient
+            Dim selectPatientIdQuery As String = "SELECT LAST_INSERT_ID()"
+            Dim patientId As Integer
+            Using cmd As New MySqlCommand(selectPatientIdQuery, conn)
+                patientId = Convert.ToInt32(cmd.ExecuteScalar())
+            End Using
+
+            ' Store appointment details in the appointment table
+            Dim insertAppointmentQuery As String = "INSERT INTO appointment (doctorid, patientid, appointmentdate, appointmenttime, ambulancerequired, status) VALUES (@DoctorId, @PatientId, @AppointmentDate, @AppointmentTime, @AmbulanceRequired, 'Confirmed')"
+            Using cmd As New MySqlCommand(insertAppointmentQuery, conn)
+                cmd.Parameters.AddWithValue("@DoctorId", doctorid)
+                cmd.Parameters.AddWithValue("@PatientId", patientId)
+                cmd.Parameters.AddWithValue("@AppointmentDate", appointmentDate)
+                cmd.Parameters.AddWithValue("@AmbulanceRequired", ambulanceRequired)
+
+                cmd.ExecuteNonQuery()
+            End Using
+
+            MessageBox.Show("Appointment created successfully!")
+
+        Catch ex As Exception
+            MessageBox.Show("Error: " & ex.Message)
+        Finally
+            If conn.State = ConnectionState.Open Then
+                conn.Close()
+            End If
+        End Try
+    End Sub
+
+    Private Sub TextBox1_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBox1.KeyPress
+        ' Check if the entered key is a digit
+        If Char.IsDigit(e.KeyChar) Then
+            e.Handled = True ' Ignore the key input if it is a digit
+            MessageBox.Show("Name cannot contain numeric characters.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End If
+    End Sub
+
+    Private Sub TextBox2_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBox2.KeyPress
+        ' No validation for TextBox2 as it can have both integer and alphabet
+    End Sub
+
+    Private Sub TextBox4_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBox4.KeyPress
+        ' Check if the entered key is a digit
+        If Char.IsDigit(e.KeyChar) Then
+            e.Handled = True ' Ignore the key input if it is a digit
+            MessageBox.Show("History cannot contain numeric characters.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End If
+    End Sub
+
+    Private Sub TextBox3_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBox3.KeyPress
+        ' Check if the entered key is not a digit or backspace
+        If Not Char.IsDigit(e.KeyChar) And e.KeyChar <> Convert.ToChar(Keys.Back) Then
+            e.Handled = True ' Ignore the key input if it is not a digit or backspace
+            MessageBox.Show("Contact number must be a numeric value.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End If
+
+        ' Check if the length of TextBox3 is already 10 (considering 0-based index)
+        If TextBox3.Text.Length >= 10 And e.KeyChar <> Convert.ToChar(Keys.Back) Then
+            e.Handled = True ' Ignore the key input if it would exceed 10 digits
+            MessageBox.Show("Contact number must be a 10-digit integer.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End If
+    End Sub
+
+    Private Sub DateTimePicker1_Validating(sender As Object, e As System.ComponentModel.CancelEventArgs) Handles DateTimePicker1.Validating
+        ' Check if the selected date is after today
+        If DateTimePicker1.Value > DateTime.Now Then
+            MessageBox.Show("Please select  date of birth on or before today.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            ' Cancel the event to keep focus on the DateTimePicker
+            e.Cancel = True
+            DateTimePicker1.Value = DateTime.Now
+        End If
+    End Sub
+
+    Private Sub DateTimePicker2_Validating(sender As Object, e As System.ComponentModel.CancelEventArgs) Handles DateTimePicker2.Validating
+        ' Check if the selected date is before today
+        If DateTimePicker2.Value < DateTime.Now Then
+            MessageBox.Show("Please select a date on or after today.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            ' Cancel the event to keep focus on the DateTimePicker
+            e.Cancel = True
+            DateTimePicker2.Value = DateTime.Now
+        End If
+    End Sub
+
+
+
+
+    ' Function to check if a string contains numeric characters
+    Private Function ContainsNumeric(value As String) As Boolean
+        For Each c As Char In value
+            If Char.IsDigit(c) Then
+                Return True
+            End If
+        Next
+        Return False
+    End Function
+
+    Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
+        ' Reset all fields
+        TextBox1.Clear()
+        TextBox2.Clear()
+        TextBox3.Clear()
+        TextBox4.Clear()
+        RadioButton1.Checked = False
+        RadioButton2.Checked = False
+        ComboBox1.SelectedIndex = -1
+        ComboBox2.SelectedIndex = -1
+        ComboBox3.SelectedIndex = -1
+        DateTimePicker1.Value = DateTime.Now
+        DateTimePicker2.Value = DateTime.Now
+
+        RadioButton3.Checked = False
+        RadioButton4.Checked = False
+    End Sub
+
+    Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
+        Form2.Show()
+        Me.Hide()
+    End Sub
+    Private Sub PictureBox1_Click_1(sender As Object, e As EventArgs) Handles PictureBox1.Click
+        Form2.Show()
+        Me.Hide()
+    End Sub
+
+End Class
